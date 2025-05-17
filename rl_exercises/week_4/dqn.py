@@ -134,8 +134,9 @@ class DQNAgent(AbstractAgent):
         # TODO: implement exponential‐decayin
         # ε = ε_final + (ε_start - ε_final) * exp(-total_steps / ε_decay)
         # Currently, it is constant and returns the starting value ε
+        epsilon = self.epsilon_final + (self.epsilon_start - self.epsilon_final) * np.exp(-self.total_steps / self.epsilon_decay)
 
-        return self.epsilon_start
+        return epsilon
 
     def predict_action(
         self, state: np.ndarray, evaluate: bool = False
@@ -158,19 +159,21 @@ class DQNAgent(AbstractAgent):
         info_out : dict
             Empty dict (compatible with interface).
         """
+        state_tensor = torch.tensor(state)
         if evaluate:
             # TODO: select purely greedy action from Q(s)
             with torch.no_grad():
-                qvals = ...  # noqa: F841
+                qvals = self.q(state_tensor)
 
-            action = None
+            action = torch.argmax(qvals).item()
         else:
             if np.random.rand() < self.epsilon():
                 # TODO: sample random action
-                action = None
+                action = self.env.action_space.sample()
             else:
                 # TODO: select purely greedy action from Q(s)
-                action = None
+                qvals = self.q(state_tensor)
+                action = torch.argmax(qvals).item()
 
         return action
 
@@ -229,11 +232,15 @@ class DQNAgent(AbstractAgent):
         mask = torch.tensor(np.array(dones), dtype=torch.float32)  # noqa: F841
 
         # # TODO: pass batched states through self.q and gather Q(s,a)
-        pred = ...
+        qvals = self.q(s)
+        pred = qvals.gather(1, a)
 
         # TODO: compute TD target with frozen network
         with torch.no_grad():
-            target = ...
+            next_qvals = self.target_q(s_next)
+            max_next_qval = next_qvals.max(1)[0] 
+            target = r + self.gamma * (1 - mask) * max_next_qval
+
 
         loss = nn.MSELoss()(pred, target)
 
@@ -276,7 +283,7 @@ class DQNAgent(AbstractAgent):
             # update if ready
             if len(self.buffer) >= self.batch_size:
                 # TODO: sample a batch from replay buffer
-                batch = ...
+                batch = self.buffer.sample(self.batch_size)
                 _ = self.update_agent(batch)
 
             if done or truncated:
